@@ -1,23 +1,24 @@
-
 # Fault-Tolerant ETL Platform
+![CI](https://github.com/NurzhanSarsenbayev/fault-tolerant-etl-platform/actions/workflows/ci.yml/badge.svg)
 
-A platform prototype for building analytical data marts and search indexes in a distributed environment.
+A production-oriented pipeline execution platform for
+resumable, idempotent, and recoverable data workflows.
 
-This system is designed for **reliable, resumable, and idempotent data pipelines** with explicit separation between
-**control-plane** (management) and **data-plane** (execution).
+It separates control-plane (management) and data-plane (execution)
+to provide explicit state transitions, batch-level durability,
+and predictable recovery.
 
 ---
 
 ## Overview
 
-This platform allows you to:
+The platform provides:
 
-- Define ETL pipelines via a REST API
-- Execute them asynchronously in a separate worker process
-- Process data in batches
-- Resume after failures
-- Support incremental loading
-- Write results to PostgreSQL and Elasticsearch
+- Declarative pipeline definitions via REST API
+- Asynchronous execution via dedicated worker
+- Batch-based processing with checkpointing
+- Incremental and full loading modes
+- Idempotent writes to PostgreSQL and Elasticsearch
 
 The main design goal is **operational reliability**: pipelines should not break on transient errors, should be resumable,
 and should never corrupt target data.
@@ -66,17 +67,23 @@ This platform addresses these issues by introducing:
 
 ```
 
-Client
-|
-v
-ETL API (FastAPI) ──► Postgres (etl schema)
-▲
-|
-ETL Runner (worker)
-|
-+------+------------------+
-|                         |
-Postgres (analytics)   Elasticsearch
+                Client
+                   |
+                   v
+        ETL API (Control-plane)
+                   |
+                   v
+        Postgres (etl schema)
+          - pipelines
+          - states
+          - runs
+                   ^
+                   |
+            ETL Runner (Data-plane)
+                   |
+         +---------+-------------+
+         |                       |
+  Postgres (analytics)     Elasticsearch
 
 ```
 
@@ -203,7 +210,8 @@ Violating these constraints may result in:
 
 ## Failure Handling & Recovery
 
-This system is designed for **operational safety** and predictable recovery.
+The system is intentionally designed around practical reliability,
+not theoretical perfection.
 
 ### Processing semantics (actual guarantees)
 
@@ -287,8 +295,8 @@ Wait until services become healthy.
 Health checks:
 
 ```bash
-curl http://localhost:8100/api/v1/health
-curl http://localhost:9200
+curl http://localhost:${API_PORT:-8100}/api/v1/health
+curl http://localhost:${ES_PORT:-9200}
 ```
 
 ### 3. Create and run a demo pipeline
@@ -443,7 +451,7 @@ A complete hands-on demo covering:
 
 The demo is fully automated via the Makefile and takes ~5–7 minutes to complete:
 
-👉 **See [`DEMO.md`](DEMO.md)**
+👉 **See [`docs/DEMO.md`](docs/DEMO.md)**
 
 For deeper validation scenarios and edge cases, see `docs/DEMO.md`.
 
@@ -462,16 +470,23 @@ For deeper validation scenarios and edge cases, see `docs/DEMO.md`.
 
 ## Testing
 
-The test suite focuses on control-plane correctness and safety guarantees:
+The test suite validates:
 
-* Pipeline configuration validation
-* Incremental mode contracts
-* Python pipeline safety (allowlisted modules)
-* Invalid configurations are rejected early
+- Control-plane state transitions
+- Incremental contract enforcement
+- Target allowlisting
+- Failure semantics
+- Invalid configuration rejection
 
-Tests are fast, deterministic, and require no external systems.
+Tests are deterministic and designed to enforce safety guarantees.
 
+Run tests:
+
+```bash
 pytest
+```
+
+CI enforces safety guarantees on every commit.
 
 ---
 
@@ -490,7 +505,9 @@ pytest
 
 ---
 
-## Roadmap
+## Future Extensions
+
+The following extensions would evolve this platform toward a production-grade orchestration system:
 
 * DAG-based task plans
 * Parallel execution
@@ -498,13 +515,3 @@ pytest
 * Metrics (Prometheus)
 * Failed batch storage + replay (DLQ-style for batches)
 * New sinks (S3, ClickHouse)
-
----
-
-## Author
-
-**Nurzhan Sarsenbayev**
-Platform / Data Backend Engineer
-Python, ETL, Distributed Systems
-
-```
