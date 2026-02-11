@@ -22,8 +22,17 @@ DT    ?= 0.2     # polling interval for watch
 N     ?= 50      # number of watch iterations
 
 JQ := $(shell command -v jq 2>/dev/null)
-
+PY ?= python
 JSON_FMT = $(if $(JQ),jq .,cat)
+
+# jq is optional:
+# - if jq is present: pretty/brief output
+# - if not: raw JSON is printed (still usable)
+JSON_BRIEF = $(if $(JQ),jq '{id,name,status}',cat)
+JSON_GET_BRIEF = $(if $(JQ),jq '{id,name,status,mode,type,batch_size,target_table}',cat)
+
+# length() is needed for delta helpers; fallback to Python if jq is absent
+JSON_LEN = $(if $(JQ),jq 'length',$(PY) -c "import sys,json; print(len(json.load(sys.stdin)))")
 
 .PHONY: help up down down-v restart build ps logs \
         api-health api-list api-get api-run api-pause api-runs \
@@ -114,7 +123,7 @@ api-run-and-pause:
 api-watch-status:
 	@test -n "$(ID)" || (echo "Usage: make api-watch-status ID=<uuid> [N=50 DT=0.2]" && exit 1)
 	@for i in $$(seq 1 $(N)); do \
-	  curl -s $(PIPES)/$(ID) | jq '{id,name,status}'; \
+	  curl -s $(PIPES)/$(ID) | $(JSON_BRIEF); \
 	  sleep $(DT); \
 	done
 
@@ -134,10 +143,10 @@ api-runs-delta2:
 
 api-runs-delta2-wait:
 	@test -n "$(ID)" || (echo "Usage: make api-runs-delta2-wait ID=<uuid>" && exit 1)
-	@BEFORE=$$(curl -s "$(PIPES)/$(ID)/runs?limit=500" | jq 'length'); \
+	@BEFORE=$$(curl -s "$(PIPES)/$(ID)/runs?limit=500" | $(JSON_LEN)); \
 	( curl -s -X POST $(PIPES)/$(ID)/run >/dev/null & curl -s -X POST $(PIPES)/$(ID)/run >/dev/null & wait ); \
 	sleep 6; \
-	AFTER=$$(curl -s "$(PIPES)/$(ID)/runs?limit=500" | jq 'length'); \
+	AFTER=$$(curl -s "$(PIPES)/$(ID)/runs?limit=500" | $(JSON_LEN)); \
 	echo "before=$$BEFORE after=$$AFTER delta=$$((AFTER-BEFORE))"
 
 api-runs:
@@ -346,7 +355,7 @@ logs-runner:
 
 api-get-brief:
 	@test -n "$(ID)" || (echo "Usage: make api-get-brief ID=<uuid>" && exit 1)
-	@curl -s $(PIPES)/$(ID) | jq '{id,name,status,mode,type,batch_size,target_table}'
+	@curl -s $(PIPES)/$(ID) | $(JSON_GET_BRIEF)
 
 test-retry-flip-film-dim:
 	@test -n "$(ID)" || (echo "Usage: make test-retry-flip-film-dim ID=<uuid>" && exit 1)
@@ -385,7 +394,7 @@ db-tasks-film-dim-inc:
 	@$(PSQL) -c "INSERT INTO etl.etl_pipeline_tasks (pipeline_id, order_index, task_type, body, target_table) VALUES ('$(ID)', 2, 'PYTHON', 'src.pipelines.python_tasks.normalize_title', NULL);"
 
 es-demo:
-	@curl -s "http://127.0.0.1:9200/film_dim/_search?size=3" | jq
+	@curl -s "http://127.0.0.1:9200/film_dim/_search?size=3" | $(JSON_FMT)
 
 pg-demo:
 	@$(PSQL) -c "SELECT film_id,title FROM analytics.film_dim;"
